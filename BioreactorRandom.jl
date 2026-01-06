@@ -114,7 +114,8 @@ Y_sr = hcat([nn([X_sr[1, i]], trained_params, state)[1] for i in 1:size(X_sr, 2)
 Y_true = hcat([μ_max * X_sr[1, i] / (K_s + X_sr[1, i]) for i in 1:size(X_sr, 2)]...)'
 n_features = size(X_sr, 1)
 variable_names = ["Cs"]
-σsq_prior = InverseGamma(1, 1)
+# Fixed: InverseGamma(1,1) β=1 dominated Gibbs posterior
+σsq_prior = InverseGamma(1, 0.001)
 a_prior = Normal(1, 2)
 b_prior = Normal(0, 2)
 depth_prior_func(d) = Bernoulli(0.9 * (1 + d)^(-0.7))
@@ -135,7 +136,7 @@ trees1 = []
 log_liks1 = []
 for chain in 1:100
     println(chain)
-    tree, σsq, log_lik = run_bayesian_sr(rng, X_sr, y1, priors, n_iter=1_000_000)
+    tree, σsq, log_lik = run_bayesian_sr(rng, X_sr, y1, priors, n_iter=(@isdefined(N_ITERATIONS) ? N_ITERATIONS : 100_000))
     println(tree)
     push!(trees1, tree)
     push!(log_liks1, log_lik)
