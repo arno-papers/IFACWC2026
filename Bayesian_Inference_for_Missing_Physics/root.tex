@@ -20,7 +20,7 @@
 \begin{document}
 	\begin{frontmatter}
 		
-		\title{Bayesian Inference for Missing Physics} 
+		\title{Bayesian Symbolic Regression \\ for Missing Physics} 
 		
 		\author[First,Second]{Arno Strouwen} 
 		
@@ -73,6 +73,7 @@
 	
 	The likelihood of a candidate tree is evaluated by comparing its predictions to the outputs of the trained neural network, while a prior distribution over trees penalizes depth to encourage parsimonious expressions.
 	The RJMCMC sampler uses the likelihood and the prior to generate samples from the posterior distribution over symbolic trees, naturally quantifying structural uncertainty.
+	The merits of this choice versus computing the likelihood directly from experimental data are discussed in Section~\ref{sec:discussion}.
 	In this paper, we apply Bayesian symbolic regression to the missing physics problem for the first time, enabling principled uncertainty quantification over recovered model structures.
 	
 	We use the Lotka-Volterra predator-prey model to illustrate the concept of recovering missing physics with Bayesian symbolic regression. A fed-batch bioreactor case study is used to show how a well-designed experiment leads to lower uncertainty on the recovered missing physics.
@@ -111,26 +112,30 @@
 			\hline
 			Term & Expression & Chains \\
 			\hline
-			$\phi_1$ & $-(x_1 x_2)$ & 4 \\
-			(true: $-0.9x_1x_2$) & $-(x_1) x_2$ & 2 \\
-			& $\text{inv}(\text{inv}(-(x_1))) x_2$ & 1 \\
-			& $\lt(x_1, -1.16, 0.65) + \lt(x_2, -1.25, 0.85)$ & 1 \\
-			& $x_2 \cdot -(x_1)$ & 1 \\
-			& $\text{inv}(\text{inv}(-(\lt(x_1 x_2, 0.89, 0.20))))$ & 1 \\
+			$\phi_1$ & $-(x_1 x_2)$ & 5 \\
+			(true: $-0.9x_1x_2$) & $(x_1^2 x_2) / -(x_1)$ & 1 \\
+			& $-(x_1) / (x_1 / (x_1 x_2))$ & 1 \\
+			& $x_1 + ((x_2 x_1 + x_1) / (-(x_2) / x_2))$ & 1 \\
+			& $-\lt(x_2 x_1, 0.95, -0.18)$ & 1 \\
+			& $\lt(x_2, 0.35, -0.46) + x_1^2 / (((x_1/x_2)/-(x_1)) \cdot x_1)$ & 1 \\
 			\hline
-			$\phi_2$ & $x_1 x_2$ & 6 \\
-			(true: $0.8x_1x_2$) & $\lt(x_2, 0.91, -0.13) x_1$ & 1 \\
-			& $(x_2 x_1) + \text{inv}(-(x_1))$ & 1 \\
-			& $\lt(\lt((x_2 x_1) x_2, 1.31, -0.24), 0.28, 0.87)$ & 1 \\
-			& $\lt(x_1 x_2, 0.79, 0.26)$ & 1 \\
+			$\phi_2$ & $x_1 x_2$ & 2 \\
+			(true: $0.8x_1x_2$) & $x_2 \cdot \lt(x_1, a, b)$ & 3 \\
+			& $\lt(x_1 x_2, 0.89, -0.18)$ & 1 \\
+			& $x_2 \cdot (\exp(x_1) / ((x_1 + x_1) + x_2))$ & 1 \\
+			& $(x_2 / x_1) / -(x_1) + x_2 x_1$ & 1 \\
+			& $(-(x_2 + x_2) / \exp(x_1) + x_2) \cdot x_1$ & 1 \\
+			& $-\lt(\exp(x_1), -0.20, 1.48) \cdot x_2$ & 1 \\
 			\hline
 		\end{tabular}%
 		}
 	\end{table}
 	The interaction term between predator and prey occurs often in these equations.
-	The same equation can be found in many different forms, e.g., due to a double inversion.
+	For $\phi_1$, 8 out of 10 chains recovered an expression algebraically equivalent to $-x_1 x_2$.
+	The same equation can appear in many different forms, e.g., $(x_1^2 x_2)/-(x_1)$ simplifies to $-x_1 x_2$.
+	For $\phi_2$, the majority of chains contain the $x_1 x_2$ interaction, though some express it through nonlinear functions such as $\exp(x_1) \cdot x_2$.
 	In some equations, the coefficients $0.9$ and $0.8$ are also approximately recovered,
-	while most often a slightly too parsimonious equation involving no constants is found.
+	while for $\phi_1$ the most common outcome is a parsimonious equation without constants.
 	
 	In the following sections, we present the methodology used to recover these terms.
 	
@@ -354,20 +359,22 @@
 	The symbolic trees for Bayesian symbolic regression are implemented using DynamicExpressions.jl.
 	This package forms the backbone of representing trees in the genetic algorithm based SymbolicRegression.jl \citep{cranmerInterpretableMachineLearning2023} and is repurposed here for Bayesian inference.
 	
-	The negation, inverse, and exponential functions are used as unary operators.
+	The negation and exponential functions are used as unary operators.
 	Addition, multiplication, and division are used as binary operators.
 	Uniform distributions are used for the operator and feature priors.
-	Normal distributions, with variance 1 and means 1 and 0 are used for the priors of $a$ and $b$ parameters respectively.
+	Normal distributions, with standard deviation 2 and means 1 and 0 are used for the priors of $a$ and $b$ parameters respectively.
 	A Bernoulli distribution is used as the terminal prior,
 	where the probability of being a branch node at depth $d$ equals $0.9(1 + d)^{-0.7}$,
 	with the root node having depth zero.
-	The noise prior is an Inverse-Gamma distribution with shape and scale parameters both equal to 1.
+	The noise prior is an Inverse-Gamma distribution with shape parameter 1 and scale parameter 0.001.
 	
 	To draw from the posterior we run 100 separate Reversible Jump Markov Chains,
 	each for 100,000 iterations, and keep the final one.
-	The NUTS kernel for continuous parameters is only run after every 1,000 modifications to the tree for 10 steps.
-	After the final iteration of RJMCMC, NUTS is run for an additional 100 steps.
-	
+	Continuous parameters are initialized with 100 NUTS \citep{hoffman} steps.
+	During RJMCMC, $\sigma^2$ is updated every iteration via its conjugate Gibbs update, while $\lt$ node constants are refined every 10,000 iterations and after the final iteration using random walk Metropolis-Hastings.
+	On a single core of an AMD Ryzen 9 5900X, each chain completes in approximately 2 seconds for the Lotka-Volterra example and 5 seconds for the bioreactor example.
+	All chains are independent and thus trivially parallelizable.
+
 	The source code accompanying this paper can be found at \url{https://github.com/arno-papers/IFACWC2026}.
 	
 	This repository also contains additional examples, such as missing physics of a SIR model for COVID-19 modeling.
@@ -404,74 +411,54 @@
 		\label{fig:biostates}
 	\end{figure}
 	We now apply Bayesian symbolic regression to this data.
-	Table~\ref{tab:bioreactor_equations} shows the top 10 equations discovered by our Bayesian symbolic regression approach, sorted by likelihood.
-	For the optimal experiment, the equations are almost all rational functions, similar to the Monod equation,
-	as can be seen in Figure~\ref{fig:bioreactor_optimal}.
-	However, for the random experiment, a wide range of unfamiliar functions are found.
-	This corresponds to very poorly fitting curves in Figure~\ref{fig:bioreactor_random}.
-	The optimal experiment thus has greatly reduced the uncertainty about the model structure,
-	while we did not learn much from the random experiment.
+	The raw expression trees are complex, but algebraic simplification reveals a clear pattern.
+	As shown in Table~\ref{tab:bioreactor_equations}, four of five optimal equations reduce to the Monod form $C_s / (\alpha C_s + \beta)$, with estimated parameters closely matching the true values.
+	None of the random equations recover the Monod form: three simplify to $C_s^2 / (\alpha C_s^2 + \beta C_s + \gamma)$, exhibiting quadratic rather than the correct linear behavior at low $C_s$, while the remaining two contain non-polynomial terms.
+	Figure~\ref{fig:bioreactor} confirms that this discrepancy is most pronounced at low substrate concentrations, where the random experiment collects fewer measurements.
 	\begin{table}[htbp]
 		\centering
-		\caption{Top 10 discovered equations for the bioreactor.
-			A carefully constructed experiment compared to an experiment with a random input signal.
-			The optimal experiment finds many rational functions, similar to the Monod equation.
-			}
+		\caption{Algebraically simplified equations for the bioreactor with estimated Monod parameters. The optimal experiment recovers the Monod form, while the random experiment does not.}
 		\label{tab:bioreactor_equations}
-		\resizebox{\columnwidth}{!}{%
-		\begin{tabular}{l}
+		\begin{tabular}{llll}
 			\hline
-			Optimal experimental design \\
+			& Simplified form & $\hat{\mu}_{\max}$ & $\hat{K}_s$ \\
 			\hline
-			$C_s / \lt(C_s + ((\lt(C_s / (C_s \cdot (C_s \cdot C_s)), 0.40, 2.51) + C_s) + C_s), 0.87, 2.59)$ \\
-			$(C_s \cdot C_s) / (C_s \cdot (((C_s \cdot (C_s + C_s)) / C_s) + \exp(\exp(C_s / C_s))))$ \\
-			$C_s / (\lt(-((C_s / (C_s / C_s)) / C_s + (C_s + C_s)), -1.38, 0.37) + $\\ $\qquad ((((\lt(C_s, -0.45, 2.87) \cdot \exp(\lt(\exp(C_s / C_s), 1.80, -1.06))) /$ \\ $\qquad (C_s + C_s)) / (C_s + C_s)) + \lt(C_s \cdot (C_s / C_s), 0.12, 0.54)))$ \\
-			$C_s / ((C_s + \exp((C_s + (C_s + C_s)) / C_s)) + C_s)$ \\
-			$C_s / ((C_s + C_s) + \exp(\exp(C_s / C_s)))$ \\
-			$C_s / ((C_s + C_s) + \exp(\exp((C_s + C_s) / \lt(\lt(-\lt(C_s, -0.95, -0.92), 1.43, 0.24), 1.21, 2.47))))$ \\
-			$C_s / (\lt(C_s, 2.35, 3.73) + \exp(\exp(C_s / C_s)))$ \\
-			$\exp(-\exp((C_s + C_s) / ((C_s \cdot C_s) + C_s)))$ \\
-			$(C_s / ((C_s + \lt(C_s + \lt(\lt(C_s, 2.27, 0.42) / C_s, 3.88, 1.02), 1.13, 3.34)) \cdot \exp(C_s))) \cdot (\exp(C_s) + C_s)$ \\
-			$((C_s / C_s) + (C_s + (-\exp(C_s)))) / ((-\exp(C_s / C_s)) \cdot ((\exp(C_s) + C_s) + ((-C_s) / C_s)))$ \\
+			Opt.\ 1 & $C_s / (2.33\, C_s + 11.09)$ & 0.43 & 4.77 \\
+			Opt.\ 2 & non-polynomial ($\exp(-C_s)$ terms) & --- & --- \\
+			Opt.\ 3 & $C_s / (2.43\, C_s + 9.41)$  & 0.41 & 3.88 \\
+			Opt.\ 4 & $C_s / (2.38\, C_s + 10.83)$ & 0.42 & 4.55 \\
+			Opt.\ 5 & $C_s / (2.25\, C_s + 12.44)$ & 0.44 & 5.53 \\
 			\hline
-			Random experimental design \\
+			True & $\mu_{\max}\, C_s / (K_s + C_s)$ & 0.421 & 4.39 \\
 			\hline
-			$(C_s / \lt(C_s, -0.31, -1.33)) \cdot ((C_s / \lt(C_s, 1.97, 1.15)) / \ldots$ \\
-			$\qquad(\lt(C_s, 3.10, -3.44) / (C_s + C_s \cdot \lt(C_s, -2.46, -2.62)))) / \ldots$  \\
-			$\qquad((C_s + C_s) + (\lt(C_s / C_s, 3.24, 3.37) + C_s))$ \\
-			$C_s / (\exp((C_s + C_s / C_s) / C_s) \cdot C_s)$ \\
-			$C_s / (-(-(C_s + C_s) + C_s))$ \\
-			$\exp(-C_s / C_s)$ \\
-			$-(-C_s / ((C_s + C_s) + C_s))$ \\
-			$\exp(-C_s / C_s)$ \\
-			$\exp(-C_s / C_s)$ \\
-			$\exp(((C_s + C_s) / C_s) / (C_s + C_s) \cdot (-C_s))$ \\
-			$\exp(-(C_s + ((\exp(-C_s) + C_s + (C_s / C_s) / C_s) / C_s)) / C_s)$ \\
-			$C_s / (C_s + C_s + C_s)$ \\
-		\end{tabular}%
-		}
+			Rand.\ 1 & $C_s^2 / (2.46\, C_s^2 + 7.50\, C_s + 7.96)$ & --- & --- \\
+			Rand.\ 2 & non-polynomial ($\exp(1/C_s)$ terms) & --- & --- \\
+			Rand.\ 3 & $C_s^2 / (2.57\, C_s^2 + 4.92\, C_s + 18.10)$ & --- & --- \\
+			Rand.\ 4 & $C_s^2 / (2.34\, C_s^2 + 11.76\, C_s - 1.47)$ & --- & --- \\
+			Rand.\ 5 & non-polynomial ($1/C_s$ terms) & --- & --- \\
+			\hline
+		\end{tabular}
 	\end{table}
 	\begin{figure}[htbp]
 		\centering
 		\begin{subfigure}[b]{\columnwidth}
 			\centering
 			\includegraphics[width=\columnwidth]{fig_bioreactor.pdf}
-			\caption{Optimal experimental design: the equations lay in a tight region around the true missing physics, and all follow the typical Monod structure of first increasing linearly before flattening out.}
+			\caption{Optimal experimental design: the equations lay in a tight region around the true missing physics, particularly at low substrate concentrations.}
 			\label{fig:bioreactor_optimal}
 		\end{subfigure}
 		
 		\begin{subfigure}[b]{\columnwidth}
 			\centering
 			\includegraphics[width=\columnwidth]{fig_bioreactor_random.pdf}
-			\caption{Random experimental design: the equations lay in a wide region around the true missing physics.
-			None of the equations exhibit the typical Monod structure, and they are very dissimilar from one another.}
+			\caption{Random experimental design: the equations exhibit a wider spread, especially at low and medium substrate concentrations where fewer measurements are collected.}
 			\label{fig:bioreactor_random}
 		\end{subfigure}
 		\caption{Fed-batch bioreactor system. Blue solid line: missing physics, the Monod equation. Thick orange dots: predictions of the missing physics by the neural network. Green dashed lines: predicted missing physics by the top 10 trees generated by Bayesian symbolic regression.}
 		\label{fig:bioreactor}
 	\end{figure}
 
-	\section{Discussion}
+	\section{Discussion}\label{sec:discussion}
 	At the start of this research project, we aimed to eliminate the neural network as an intermediate step and directly compute the likelihood of the trees based on the measured observations using (\ref{eq:system}), rather than the neural network output as in (\ref{eq:likelihood}).
 	However, this proved computationally infeasible: evaluating symbolic trees within a differential equation solver introduces significant overhead that DynamicExpressions.jl is currently not optimized for. Another issue is that RJMCMC suffers from the curse of dimensionality, similar to random walk Metropolis-Hastings. We hope that advances in MCMC methods for discrete parameters may make this direct approach feasible in the future \citep{gagnon, power}.
 
@@ -480,10 +467,7 @@
  	with no joint uncertainty quantification.
 	Models also often contain unknown parameters that must be calibrated alongside the missing physics.
 	A likelihood based directly on (\ref{eq:system}) would enable joint uncertainty quantification over both the uncertain model structure and these parameters, yielding a fully Bayesian treatment.
-	
-	This would also open the door to Bayesian experimental design for missing physics problems, an area that remains understudied.
-	Classical T-optimal designs target model discrimination, and have been extended to missing physics problems \citep{strouwen}. However, T-optimal designs are difficult to combine with designing for parameter precision.
-	The Bayesian framework naturally unifies these objectives \citep{chaloner}.
+	This would also open the door to Bayesian experimental design for missing physics, where the Bayesian framework naturally unifies model discrimination and parameter precision objectives \citep{chaloner, strouwen}.
 	
 	In summary, we have presented a Bayesian approach to symbolic regression for missing physics that provides principled uncertainty quantification over discovered model structures.
 	While the current two-stage approach, first training a neural network, then fitting symbolic expressions, is computationally practical, future work will focus on eliminating this intermediate step to enable fully integrated Bayesian inference and experimental design.
